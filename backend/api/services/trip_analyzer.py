@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 from api.domain.recommender import RouteOption, recommend_route
 from api.domain.risk_engine import assess_checkpoint_risk
 from api.domain.risk_levels import RiskLevel
 from api.domain.route_stats import compute_route_stats
-from api.integrations.open_meteo import HourlyWeather, fetch_hourly_forecast, weather_at_time
+from api.integrations.open_meteo import (
+    HourlyWeather,
+    clear_forecast_cache,
+    fetch_hourly_forecast,
+    location_key,
+    weather_at_time,
+)
 from api.integrations.ors_client import ParsedRoute, geocode, get_route_options
 from api.services.checkpoints import build_checkpoint_plans
 
 FORECAST_HOURS = 48
+WEATHER_FETCH_DELAY_S = 0.12
 
 
 def _risk_payload(level: RiskLevel) -> dict:
@@ -42,12 +50,30 @@ def _segments_from_checkpoints(checkpoints: list[dict]) -> list[tuple[float, Ris
     return segments
 
 
+def _get_forecast_for_location(
+    lat: float,
+    lng: float,
+    load_weight_lb: float,
+    forecast_cache: dict[tuple[float, float], HourlyWeather],
+    hourly_risk_cache: dict[tuple[float, float], list[dict]],
+) -> HourlyWeather:
+    key = location_key(lat, lng)
+    if key not in forecast_cache:
+        time.sleep(WEATHER_FETCH_DELAY_S)
+        forecast = fetch_hourly_forecast(lat, lng, hours=FORECAST_HOURS)
+        forecast_cache[key] = forecast
+        hourly_risk_cache[key] = _hourly_risk_from_forecast(forecast, load_weight_lb)
+    return forecast_cache[key]
+
+
 def _analyze_route(
     route: ParsedRoute,
     *,
     departure: datetime,
     load_weight_lb: float,
     interval_miles: float,
+    forecast_cache: dict[tuple[float, float], HourlyWeather],
+    hourly_risk_cache: dict[tuple[float, float], list[dict]],
 ) -> dict:
     plans = build_checkpoint_plans(
         route.coordinates_lat_lng,
@@ -56,17 +82,16 @@ def _analyze_route(
         duration_seconds=route.duration_s,
     )
 
-    forecast_cache: dict[tuple[float, float], HourlyWeather] = {}
-    hourly_risk_cache: dict[tuple[float, float], list[dict]] = {}
     checkpoints: list[dict] = []
 
     for plan in plans:
-        key = (round(plan.lat, 3), round(plan.lng, 3))
-        if key not in forecast_cache:
-            forecast = fetch_hourly_forecast(plan.lat, plan.lng, hours=FORECAST_HOURS)
-            forecast_cache[key] = forecast
-            hourly_risk_cache[key] = _hourly_risk_from_forecast(forecast, load_weight_lb)
-        forecast = forecast_cache[key]
+        forecast = _get_forecast_for_location(
+            plan.lat,
+            plan.lng,
+            load_weight_lb,
+            forecast_cache,
+            hourly_risk_cache,
+        )
 
         wind, rain, snow = weather_at_time(forecast, plan.eta)
         level = assess_checkpoint_risk(
@@ -95,7 +120,7 @@ def _analyze_route(
     heatmap_points = []
     seen_heatmap: set[tuple[float, float]] = set()
     for cp in checkpoints:
-        key = (round(cp["lat"], 3), round(cp["lng"], 3))
+        key = location_key(cp["lat"], cp["lng"])
         if key in seen_heatmap:
             continue
         seen_heatmap.add(key)
@@ -136,9 +161,14 @@ def analyze_trip(
     load_weight_lb: float,
     checkpoint_interval_miles: float = 25.0,
 ) -> dict:
+    clear_forecast_cache()
+
     start = geocode(origin)
     end = geocode(destination)
     routes = get_route_options(start, end, target_count=3)
+
+    forecast_cache: dict[tuple[float, float], HourlyWeather] = {}
+    hourly_risk_cache: dict[tuple[float, float], list[dict]] = {}
 
     analyzed = [
         _analyze_route(
@@ -146,6 +176,8 @@ def analyze_trip(
             departure=departure_at,
             load_weight_lb=load_weight_lb,
             interval_miles=checkpoint_interval_miles,
+            forecast_cache=forecast_cache,
+            hourly_risk_cache=hourly_risk_cache,
         )
         for route in routes
     ]

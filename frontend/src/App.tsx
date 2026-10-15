@@ -1,11 +1,11 @@
-import { Box, Container, Stack } from '@mui/material'
+import { Box, Stack } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { analyzeTrip } from './api/client'
-import { AppHeader } from './components/AppHeader'
-import { ForecastSlider } from './components/ForecastSlider'
+import { DashboardSidebar, type TripFormValues } from './components/DashboardSidebar'
+import { RouteDetailsPanel } from './components/RouteDetailsPanel'
 import { RouteMap } from './components/RouteMap'
-import { RouteResults } from './components/RouteResults'
-import { TripForm, type TripFormValues } from './components/TripForm'
+import { RouteOptionCards } from './components/RouteOptionCards'
+import { TopNav } from './components/TopNav'
 import type { TripAnalyzeResponse } from './types/trip'
 
 function localInputToIso(value: string): string {
@@ -18,13 +18,18 @@ export default function App() {
   const [trip, setTrip] = useState<TripAnalyzeResponse | null>(null)
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [forecastHourOffset, setForecastHourOffset] = useState(0)
+  const [showHeatmap, setShowHeatmap] = useState(true)
+  const [mapStyle, setMapStyle] = useState<'road' | 'satellite'>('satellite')
 
   const activeRouteId = useMemo(() => {
-    if (!trip) {
-      return null
-    }
+    if (!trip) return null
     return selectedRouteId ?? trip.recommended_route_id ?? trip.routes[0]?.id ?? null
   }, [trip, selectedRouteId])
+
+  const selectedRoute = useMemo(() => {
+    if (!trip || !activeRouteId) return null
+    return trip.routes.find((r) => r.id === activeRouteId) ?? trip.routes[0]
+  }, [trip, activeRouteId])
 
   async function handleSubmit(values: TripFormValues) {
     setLoading(true)
@@ -50,34 +55,50 @@ export default function App() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-      <AppHeader />
-      <Container maxWidth="lg" sx={{ pb: 5 }}>
-        <Stack spacing={3}>
-          <TripForm loading={loading} error={error} onSubmit={handleSubmit} />
+      <TopNav />
+
+      <Box sx={{ px: { xs: 1.5, md: 2 }, py: 2, maxWidth: 1800, mx: 'auto' }}>
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={2}
+          sx={{ alignItems: { lg: 'stretch' } }}
+        >
+          <DashboardSidebar
+            loading={loading}
+            error={error}
+            showHeatmap={showHeatmap}
+            onShowHeatmapChange={setShowHeatmap}
+            onSubmit={handleSubmit}
+          />
+
+          <RouteMap
+            trip={trip}
+            selectedRouteId={activeRouteId}
+            forecastHourOffset={forecastHourOffset}
+            showHeatmap={showHeatmap}
+            mapStyle={mapStyle}
+            onMapStyleChange={setMapStyle}
+          />
 
           {trip && activeRouteId ? (
-            <>
-              <RouteResults
-                routes={trip.routes}
-                recommendedRouteId={trip.recommended_route_id}
-                selectedRouteId={activeRouteId}
-                onSelectRoute={setSelectedRouteId}
-              />
-              <ForecastSlider
-                hourOffset={forecastHourOffset}
-                onChange={setForecastHourOffset}
-                departureIso={trip.departure_at}
-              />
-              <RouteMap
-                trip={trip}
-                selectedRouteId={activeRouteId}
-                forecastHourOffset={forecastHourOffset}
-                showHeatmap
-              />
-            </>
+            <RouteOptionCards
+              routes={trip.routes}
+              recommendedRouteId={trip.recommended_route_id}
+              selectedRouteId={activeRouteId}
+              onSelectRoute={setSelectedRouteId}
+            />
           ) : null}
         </Stack>
-      </Container>
+
+        {trip && selectedRoute ? (
+          <RouteDetailsPanel
+            trip={trip}
+            selectedRoute={selectedRoute}
+            forecastHourOffset={forecastHourOffset}
+            onForecastHourChange={setForecastHourOffset}
+          />
+        ) : null}
+      </Box>
     </Box>
   )
 }
