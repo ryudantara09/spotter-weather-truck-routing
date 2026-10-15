@@ -2,6 +2,8 @@
 
 Full-stack web app for the Spotter-AI assessment: compare **three HGV routes** using **weather at ETA-matched checkpoints**, **load-aware risk rules**, and a **0–48 hour corridor heatmap**.
 
+![Spotter-AI dashboard — trip planning, route map, and route comparison](docs/dashboard-screenshot.jpg)
+
 ## Live demo (local)
 
 | Service   | URL |
@@ -197,18 +199,6 @@ cd backend
 1. Build: `cd frontend && npm run build`
 2. Publish `dist/`
 3. Set `VITE_API_BASE=https://your-api.example.com`
-
-## Loom walkthrough script (~5–10 min)
-
-1. **Intro** — Problem: choose safest truck route given weather, load, and time.
-2. **Inputs** — Chicago → Detroit, departure, 32k lb, 25 mi checkpoints.
-3. **Find safe routes** — Wait for analysis; mention backend + ORS + Open-Meteo.
-4. **Route cards** — Recommended route, risk breakdown bars, compare three options.
-5. **Map** — Polylines, checkpoint colors, satellite view, heatmap legend.
-6. **Slider** — Move 0–48 h forecast; heatmap updates along corridor.
-7. **Checkpoints tab** — ETA, wind, rain, risk per mile.
-8. **Code** — Quick peek: `risk_engine.py`, `trip_analyzer.py`, dashboard components.
-9. **Run locally** — `.env`, `runserver`, `npm run dev`, pytest.
 
 ## License
 
